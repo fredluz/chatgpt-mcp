@@ -24,10 +24,7 @@ Exposes three surfaces on top of the same browser controller:
 Requires Node.js 18+ and a local Google Chrome install.
 
 ```bash
-git clone git@github.com:guilhermesilveira/chatgpt-mcp.git
-cd chatgpt-mcp
-npm install
-npm link                       # exposes `chatgpt-mcp` on PATH
+npm install -g @guilhermesilveira/chatgpt-mcp   # installs `chatgpt-mcp` globally
 
 # Terminal 1 — launch Chrome, log in once
 chatgpt-mcp launch
