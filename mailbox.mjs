@@ -319,7 +319,7 @@ export async function notifyAgentIfAvailable(agent, requestId, preview, options 
   const scriptPath = options.scriptPath ?? defaultNotifyScriptPath();
   if (!existsSync(scriptPath)) return false;
 
-  const message = `chatgpt-mcp response ready: ${requestId} — preview: ${previewText(preview)}`;
+  const message = `exocortex-chatgpt response ready: ${requestId} — preview: ${previewText(preview)}`;
   const runner = options.runner ?? defaultNotifyRunner;
 
   try {

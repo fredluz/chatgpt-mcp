@@ -492,7 +492,7 @@ async function sendPromptAndWait(page, prompt, opts = {}) {
 }
 
 function notLoggedInError() {
-  return new Error('not_logged_in: run `chatgpt-mcp launch` and sign in');
+  return new Error('not_logged_in: run `exocortex-chatgpt launch` and sign in');
 }
 
 async function assertPromptCapablePage(page) {

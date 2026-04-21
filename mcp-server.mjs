@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// MCP server over stdio for chatgpt-mcp.
+// MCP server over stdio for exocortex-chatgpt-connector.
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -23,7 +23,7 @@ import {
   submit,
 } from './mailbox.mjs';
 
-const server = new McpServer({ name: 'chatgpt-mcp', version: '0.1.0' });
+const server = new McpServer({ name: 'exocortex-chatgpt-connector', version: '0.1.1' });
 
 server.registerTool('query', {
   title: 'Send a prompt to ChatGPT',
@@ -175,4 +175,4 @@ server.registerTool('stop', {
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
-console.error('[mcp] chatgpt-mcp ready on stdio');
+console.error('[mcp] exocortex-chatgpt-connector ready on stdio');

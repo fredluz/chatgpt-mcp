@@ -1,43 +1,49 @@
-# chatgpt-mcp
+# exocortex-chatgpt-connector
 
-Local MCP server that drives the ChatGPT web UI via [patchright](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright) (a stealth Playwright fork). Keeps a persistent Chrome profile so you log in once, then Claude Code, your scripts, and a CLI can share the same ChatGPT session concurrently over CDP.
+Async multi-agent orchestration layer over ChatGPT Pro. Stream text and image generation to disk from any MCP client.
+
+## Attribution
+
+This project started as a fork of [guilhermesilveira/chatgpt-mcp](https://github.com/guilhermesilveira/chatgpt-mcp) v0.1.1. The patchright CDP attach and selector self-heal mechanisms are derived from that work. Extended into an async multi-agent orchestration layer with file-backed request queue, daemon workflow, ephemeral per-request tab lifecycle, per-agent notification hooks, and image generation with authenticated downloads.
+
+Under the hood this still drives the ChatGPT web UI via [patchright](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright) (a stealth Playwright fork). It keeps a persistent Chrome profile so you log in once, then MCP clients, scripts, and CLI tooling can share the same ChatGPT session over CDP.
 
 Exposes three surfaces on top of the same browser controller:
 
 - **MCP server** (stdio) — for Claude Code and any MCP client.
 - **HTTP API** (localhost, bearer token) — for shell scripts and remote helpers.
-- **CLI** — `chatgpt-mcp <subcommand>`.
+- **CLI** — `exocortex-chatgpt <subcommand>`.
 
 ## Features
 
-- **Persistent login** — one-time sign-in in a dedicated Chrome profile; session survives restarts
-- **Shared session over CDP** — launcher keeps Chrome open; MCP server, HTTP API, and CLI attach to the same browser via `http://127.0.0.1:9222`
-- **Single-threaded controller** — every mutating op goes through a FIFO mutex so concurrent calls never collide
-- **Async mailbox queue** — submit work and get a `request_id` immediately; daemon processes requests and persists responses to disk
-- **Long responses** — no internal timeout on generation; a single reply can take up to an hour (deep research, Pro Thinking) without anything bailing
-- **Model switching** — `Instant` / `Thinking` / `Pro` via stable `data-testid` map
-- **Thinking-level switching** — `Standard` / `Longer` on Pro/Thinking models, matched by SVG sprite icon (locale-independent) with localized-text fallback
-- **Image generation + download** — submit an image prompt, capture all `<img>` URLs in the latest assistant turn, and download with browser-authenticated cookies
-- **Structured status** — reads current model + thinking level passively from the composer pill (no menus opened)
-- **Selector self-heal** — `chatgpt-mcp check` walks `selectors.json` against the live page and reports misses when ChatGPT rotates markup
+- **Async queue-first orchestration** — submit work and get a `request_id` immediately; daemon workers process prompts independently and persist complete/error state to disk.
+- **Ephemeral per-request tab lifecycle** — each async request runs in its own marked tab, then closes only after durable response persistence.
+- **Agent-aware notifications** — optional per-agent callbacks fire when responses are ready, enabling multi-agent handoff workflows.
+- **Text + image pipeline** — unified async flow for text and image generation, including authenticated image download to local files.
+- **Shared persistent session over CDP** — one login in a dedicated Chrome profile, reused by launcher, CLI, MCP server, and HTTP API.
+- **Long-running response tolerance** — no short internal timeout; Pro/Thinking responses can run for extended durations.
+- **Model + thinking controls** — robust model/thinking switching with localized and icon-based fallback selectors.
+- **Selector self-heal checks** — `exocortex-chatgpt check` validates critical selectors against live ChatGPT markup.
 
 ## Quick Start
 
 Requires Node.js 18+ and a local Google Chrome install.
 
 ```bash
-npm install -g @guilhermesilveira/chatgpt-mcp   # installs `chatgpt-mcp` globally
+npm install -g @fredluz/exocortex-chatgpt-connector   # installs `exocortex-chatgpt` globally
 
 # Terminal 1 — launch Chrome, log in once
-chatgpt-mcp launch
+exocortex-chatgpt launch
 
 # Terminal 2 — run async worker
-chatgpt-mcp daemon
+exocortex-chatgpt daemon
 
 # Terminal 3 — use it
-chatgpt-mcp status
-chatgpt-mcp query "what is 2+2? one word"
+exocortex-chatgpt status
+exocortex-chatgpt query "what is 2+2? one word"
 ```
+
+Legacy alias: `chatgpt-mcp` remains available for compatibility, but `exocortex-chatgpt` is the primary CLI name.
 
 ## How it works
 
@@ -71,31 +77,32 @@ The first process to call the controller tries to attach over CDP; if the launch
 ## CLI
 
 ```bash
-chatgpt-mcp launch              # start Chrome with persistent profile + CDP
-chatgpt-mcp daemon              # async mailbox worker (open per-request tab, persist, notify)
-chatgpt-mcp server              # run the MCP stdio server (for Claude Code)
-chatgpt-mcp http                # run the localhost HTTP API
-chatgpt-mcp status              # state=ready model=Pro thinking=Länger
-chatgpt-mcp status <request_id> # queued request status JSON
-chatgpt-mcp submit "prompt..." --agent foo   # queue prompt, print request_id immediately
-chatgpt-mcp fetch <request_id>  # fetch queued response JSON
-chatgpt-mcp query "prompt..."   # send a prompt, print the reply
-chatgpt-mcp image "prompt..."   # generate image(s), download, print local file paths
-chatgpt-mcp last                # print the last assistant message
-chatgpt-mcp new                 # open a new chat
-chatgpt-mcp model               # print current model
-chatgpt-mcp model pro           # switch model
-chatgpt-mcp thinking            # print current thinking level
-chatgpt-mcp thinking longer     # switch thinking level
-chatgpt-mcp stop                # abort an in-flight generation
-chatgpt-mcp tabs cleanup        # close leftover async worker tabs (including error tabs)
-chatgpt-mcp check               # selector self-heal report
+exocortex-chatgpt launch              # launch Chrome off-screen by default (prevents focus stealing)
+exocortex-chatgpt launch --visible    # debug mode: keep Chrome on-screen
+exocortex-chatgpt daemon              # async mailbox worker (open per-request tab, persist, notify)
+exocortex-chatgpt server              # run the MCP stdio server (for Claude Code)
+exocortex-chatgpt http                # run the localhost HTTP API
+exocortex-chatgpt status              # state=ready model=Pro thinking=Länger
+exocortex-chatgpt status <request_id> # queued request status JSON
+exocortex-chatgpt submit "prompt..." --agent foo   # queue prompt, print request_id immediately
+exocortex-chatgpt fetch <request_id>  # fetch queued response JSON
+exocortex-chatgpt query "prompt..."   # send a prompt, print the reply
+exocortex-chatgpt image "prompt..."   # generate image(s), download, print local file paths
+exocortex-chatgpt last                # print the last assistant message
+exocortex-chatgpt new                 # open a new chat
+exocortex-chatgpt model               # print current model
+exocortex-chatgpt model pro           # switch model
+exocortex-chatgpt thinking            # print current thinking level
+exocortex-chatgpt thinking longer     # switch thinking level
+exocortex-chatgpt stop                # abort an in-flight generation
+exocortex-chatgpt tabs cleanup        # close leftover async worker tabs (including error tabs)
+exocortex-chatgpt check               # selector self-heal report
 ```
 
 `query` flags:
 
 ```bash
-chatgpt-mcp query --fresh --model pro --thinking longer "complex question..."
+exocortex-chatgpt query --fresh --model pro --thinking longer "complex question..."
 ```
 
 - `--fresh` — start a new chat first.
@@ -135,23 +142,23 @@ Daemon tab lifecycle:
 
 - Startup: closes stale `chatgpt-mcp-active:*` tabs from prior crashes.
 - Shutdown: closes active worker tabs; error tabs are intentionally preserved.
-- Manual cleanup: `chatgpt-mcp tabs cleanup` closes all daemon-marked tabs (including error tabs).
+- Manual cleanup: `exocortex-chatgpt tabs cleanup` closes all daemon-marked tabs (including error tabs).
 
 Example:
 
 ```bash
-RID=$(chatgpt-mcp submit --agent worker-a --model pro --thinking longer "summarize this PR")
-chatgpt-mcp status "$RID"     # {"state":"pending",...}
+RID=$(exocortex-chatgpt submit --agent worker-a --model pro --thinking longer "summarize this PR")
+exocortex-chatgpt status "$RID"     # {"state":"pending",...}
 # ...do unrelated work...
-chatgpt-mcp fetch "$RID"      # {"text":"...","files":[],"complete":true}
+exocortex-chatgpt fetch "$RID"      # {"text":"...","files":[],"complete":true}
 ```
 
 Async image example:
 
 ```bash
-RID=$(chatgpt-mcp submit --mode image --output-dir /tmp/chatgpt-images "Create a red warning triangle PNG with transparent background")
-chatgpt-mcp status "$RID"
-chatgpt-mcp fetch "$RID"      # {"text":"...","files":["/tmp/chatgpt-images/01.png"],"complete":true}
+RID=$(exocortex-chatgpt submit --mode image --output-dir /tmp/chatgpt-images "Create a red warning triangle PNG with transparent background")
+exocortex-chatgpt status "$RID"
+exocortex-chatgpt fetch "$RID"      # {"text":"...","files":["/tmp/chatgpt-images/01.png"],"complete":true}
 ```
 
 ## MCP tools
@@ -174,7 +181,7 @@ Registered by `mcp-server.mjs`:
 ### Wiring it into Claude Code
 
 ```bash
-claude mcp add chatgpt --scope user -- chatgpt-mcp server
+claude mcp add chatgpt --scope user -- exocortex-chatgpt server
 ```
 
 (Adjust the command if you did not `npm link`; use the absolute path to `cli.mjs server` instead.)
@@ -182,13 +189,13 @@ claude mcp add chatgpt --scope user -- chatgpt-mcp server
 If you want to expose this server under an image-specific name in Claude Code:
 
 ```bash
-claude mcp add chatgpt-image --scope user -- chatgpt-mcp server
+claude mcp add chatgpt-image --scope user -- exocortex-chatgpt server
 ```
 
 ## HTTP API
 
 ```bash
-chatgpt-mcp http                # listens on 127.0.0.1:8765
+exocortex-chatgpt http                # listens on 127.0.0.1:8765
 ```
 
 Token is auto-generated at first run and stored at `~/.chatgpt-mcp/token` (mode 0600). Pass it as `Authorization: Bearer <token>`.
@@ -218,7 +225,7 @@ Request timeout on the server is disabled (`requestTimeout=0`) so a 1-hour Pro r
 ChatGPT's DOM changes often. If a tool starts failing:
 
 ```bash
-chatgpt-mcp check
+exocortex-chatgpt check
 ```
 
 Walks every selector in `selectors.json` against the live page and prints `OK`/`MISS` per entry. Exits non-zero if anything is missing. Re-capture the relevant state and update `selectors.json` directly — no code changes needed.
@@ -249,19 +256,19 @@ Covers the pill-text parser (`parse-pill.mjs`), CLI flag parser (`flags.mjs`), a
 
 ## Optional PM2 service
 
-If you want `chatgpt-mcp launch` to run as a service and survive reboots:
+If you want `exocortex-chatgpt launch` to run as a service and survive reboots:
 
 ```bash
 npm install -g pm2
-pm2 start chatgpt-mcp --name chatgpt-mcp -- launch
+pm2 start exocortex-chatgpt --name exocortex-chatgpt -- launch
 pm2 save
 pm2 startup
 ```
 
-PM2 is optional; you can also run `chatgpt-mcp launch` by hand or from a login script. Same recipe works for the HTTP API:
+PM2 is optional; you can also run `exocortex-chatgpt launch` by hand or from a login script. Same recipe works for the HTTP API:
 
 ```bash
-pm2 start chatgpt-mcp --name chatgpt-mcp-http -- http
+pm2 start exocortex-chatgpt --name exocortex-chatgpt-http -- http
 ```
 
 Note that `launch` opens a visible Chrome window. On a headless server, that's not going to work — this project is built for local use with a real user session.
@@ -275,7 +282,7 @@ For Claude Code users who haven't `npm link`ed:
   "mcpServers": {
     "chatgpt": {
       "command": "node",
-      "args": ["/absolute/path/to/chatgpt-mcp/cli.mjs", "server"]
+      "args": ["/absolute/path/to/exocortex-chatgpt-connector/cli.mjs", "server"]
     }
   }
 }
@@ -302,7 +309,7 @@ Environment variables:
 
 ## Deployment
 
-There's no "deploy" target — this is a local service that drives a logged-in ChatGPT tab on your machine. If you need it on another machine, clone the repo there and run `chatgpt-mcp launch` + sign in there. The profile is not portable between machines.
+There's no "deploy" target — this is a local service that drives a logged-in ChatGPT tab on your machine. If you need it on another machine, clone the repo there and run `exocortex-chatgpt launch` + sign in there. The profile is not portable between machines.
 
 ## License
 

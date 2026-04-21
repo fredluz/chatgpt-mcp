@@ -1,9 +1,10 @@
 {
-  "name": "@guilhermesilveira/chatgpt-mcp",
+  "name": "@fredluz/exocortex-chatgpt-connector",
   "version": "0.1.1",
-  "description": "Local MCP server that drives ChatGPT web via patchright (persistent login, CDP-shared session).",
+  "description": "Async multi-agent orchestration layer over ChatGPT Pro with MCP/HTTP/CLI surfaces and image download pipeline.",
   "type": "module",
   "bin": {
+    "exocortex-chatgpt": "./cli.mjs",
     "chatgpt-mcp": "./cli.mjs"
   },
   "files": [
@@ -13,11 +14,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/guilhermesilveira/chatgpt-mcp.git"
+    "url": "git+https://github.com/fredluz/exocortex-chatgpt-connector.git"
   },
-  "homepage": "https://github.com/guilhermesilveira/chatgpt-mcp",
+  "homepage": "https://github.com/fredluz/exocortex-chatgpt-connector",
   "bugs": {
-    "url": "https://github.com/guilhermesilveira/chatgpt-mcp/issues"
+    "url": "https://github.com/fredluz/exocortex-chatgpt-connector/issues"
   },
   "engines": {
     "node": ">=18"

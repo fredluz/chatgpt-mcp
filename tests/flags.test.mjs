@@ -38,6 +38,10 @@ test('--image is a boolean flag', () => {
   assert.deepEqual(parseFlags(['--image']), { _: [], image: true });
 });
 
+test('--visible is a boolean flag', () => {
+  assert.deepEqual(parseFlags(['--visible']), { _: [], visible: true });
+});
+
 test('--mode consumes the next token', () => {
   assert.deepEqual(parseFlags(['--mode', 'image']), { _: [], mode: 'image' });
 });

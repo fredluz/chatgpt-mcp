@@ -14,7 +14,7 @@ const [cmd, ...rest] = process.argv.slice(2);
 
 function usage(code = 2) {
   console.error(
-    'usage: chatgpt-mcp <launch|daemon|server|http|status|submit|fetch|query|image|last|new|model|thinking|stop|check|tabs> [args]',
+    'usage: exocortex-chatgpt <launch|daemon|server|http|status|submit|fetch|query|image|last|new|model|thinking|stop|check|tabs> [args]',
   );
   process.exit(code);
 }
@@ -34,6 +34,7 @@ async function runController(fn) {
 try {
   switch (cmd) {
     case 'launch':
+      if (parseFlags(rest).visible) process.env.CHATGPT_VISIBLE = '1';
       await import('./launcher.mjs');
       break;
 

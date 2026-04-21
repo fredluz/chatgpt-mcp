@@ -144,7 +144,7 @@ test('notification hook calls runner when send-to-agent script exists', async ()
     assert.equal(ok, true);
     assert.ok(called, 'runner should be called');
     assert.equal(called[0], 'foo');
-    assert.match(called[1], /^chatgpt-mcp response ready: 123 — preview: x{100}$/);
+    assert.match(called[1], /^exocortex-chatgpt response ready: 123 — preview: x{100}$/);
 
     const missing = await notifyAgentIfAvailable('foo', '123', 'preview', {
       scriptPath: join(home, 'missing.sh'),
