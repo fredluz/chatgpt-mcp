@@ -16,6 +16,7 @@ Exposes three surfaces on top of the same browser controller:
 - **Long responses** — no internal timeout on generation; a single reply can take up to an hour (deep research, Pro Thinking) without anything bailing
 - **Model switching** — `Instant` / `Thinking` / `Pro` via stable `data-testid` map
 - **Thinking-level switching** — `Standard` / `Longer` on Pro/Thinking models, matched by SVG sprite icon (locale-independent) with localized-text fallback
+- **Image generation + download** — submit an image prompt, capture all `<img>` URLs in the latest assistant turn, and download with browser-authenticated cookies
 - **Structured status** — reads current model + thinking level passively from the composer pill (no menus opened)
 - **Selector self-heal** — `chatgpt-mcp check` walks `selectors.json` against the live page and reports misses when ChatGPT rotates markup
 
@@ -62,6 +63,7 @@ chatgpt-mcp server              # run the MCP stdio server (for Claude Code)
 chatgpt-mcp http                # run the localhost HTTP API
 chatgpt-mcp status              # state=ready model=Pro thinking=Länger
 chatgpt-mcp query "prompt..."   # send a prompt, print the reply
+chatgpt-mcp image "prompt..."   # generate image(s), download, print local file paths
 chatgpt-mcp last                # print the last assistant message
 chatgpt-mcp new                 # open a new chat
 chatgpt-mcp model               # print current model
@@ -81,6 +83,13 @@ chatgpt-mcp query --fresh --model pro --thinking longer "complex question..."
 - `--fresh` — start a new chat first.
 - `--model <name>` — switch model first. Known names: `instant`, `thinking`, `pro` (see `selectors.json → model.name_map`).
 - `--thinking <level>` — set thinking level first. Known: `standard`, `longer`.
+- `--output-dir <path>` — only for `image`; optional destination directory for downloaded files. Default: `~/.chatgpt-mcp/images/<timestamp>-<slug>/`.
+
+`image` output:
+
+- Prints one absolute file path per line.
+- Downloads all images found in the latest assistant message.
+- Uses a 3-minute generation timeout.
 
 ## MCP tools
 
@@ -89,6 +98,7 @@ Registered by `mcp-server.mjs`:
 | Tool | Description |
 |------|-------------|
 | `query` | Send prompt, wait for full reply, return text. Supports `fresh`, `model`, `thinking`. |
+| `generate_image` | Send image prompt, wait up to 3 minutes, download one or more images, return JSON `{ files, text? }`. Supports `output_dir`, `fresh`, `model`, `thinking`. |
 | `read_last_response` | Read the last assistant message without sending anything. |
 | `status` | JSON `{ state, model, thinking }`. |
 | `new_chat` | Open a new chat. |
@@ -103,6 +113,12 @@ claude mcp add chatgpt --scope user -- chatgpt-mcp server
 ```
 
 (Adjust the command if you did not `npm link`; use the absolute path to `cli.mjs server` instead.)
+
+If you want to expose this server under an image-specific name in Claude Code:
+
+```bash
+claude mcp add chatgpt-image --scope user -- chatgpt-mcp server
+```
 
 ## HTTP API
 
@@ -209,6 +225,7 @@ All state lives in `~/.chatgpt-mcp/`:
 | `~/.chatgpt-mcp/profile/` | Chrome user data dir (login cookies, settings) |
 | `~/.chatgpt-mcp/cdp` | Current CDP URL (written by the launcher) |
 | `~/.chatgpt-mcp/token` | Bearer token for the HTTP API (mode 0600) |
+| `~/.chatgpt-mcp/images/` | Default image-download root for `image` CLI and `generate_image` MCP tool |
 
 Environment variables:
 

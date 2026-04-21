@@ -6,8 +6,10 @@
 //   chatgpt-mcp http                   run the localhost HTTP API
 //   chatgpt-mcp status                 print ready | busy | not_logged_in
 //   chatgpt-mcp query "prompt..."      send prompt, print response
+//   chatgpt-mcp image "prompt..."      generate image(s), download files, print local paths
 //     flags: --fresh             start a new chat first
 //            --model <name>      switch model first (matches visible name)
+//            --output-dir <path> destination directory for downloaded images
 //   chatgpt-mcp last                   print last assistant message
 //   chatgpt-mcp new                    open a new chat
 //   chatgpt-mcp model [name]           get or set current model
@@ -20,7 +22,7 @@ const [cmd, ...rest] = process.argv.slice(2);
 
 function usage(code = 2) {
   console.error(
-    'usage: chatgpt-mcp <launch|server|http|status|query|last|new|model|thinking|stop|check> [args]',
+    'usage: chatgpt-mcp <launch|server|http|status|query|image|last|new|model|thinking|stop|check> [args]',
   );
   process.exit(code);
 }
@@ -91,6 +93,23 @@ try {
         c.query(prompt, { fresh: flags.fresh, model: flags.model, thinking: flags.thinking }),
       );
       process.stdout.write(text + '\n');
+      break;
+    }
+
+    case 'image': {
+      const flags = parseFlags(rest);
+      const prompt = flags._.join(' ').trim();
+      if (!prompt) usage();
+      const outputDir = flags['output-dir'] || flags.output_dir;
+      const { files, text } = await runController(c =>
+        c.generateImage(prompt, { output_dir: outputDir, fresh: flags.fresh, model: flags.model, thinking: flags.thinking }),
+      );
+      if (!files.length) {
+        if (text) process.stderr.write((text + '\n'));
+        process.stderr.write('no images found in the latest assistant response\n');
+      } else {
+        process.stdout.write(files.join('\n') + '\n');
+      }
       break;
     }
 

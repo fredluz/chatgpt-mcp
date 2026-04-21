@@ -6,7 +6,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import {
   query, readLast, status, newChat, setModel, getModel,
-  setThinking, getThinking, stop,
+  setThinking, getThinking, stop, generateImage,
 } from './browser-controller.mjs';
 
 const server = new McpServer({ name: 'chatgpt-mcp', version: '0.1.0' });
@@ -24,6 +24,22 @@ server.registerTool('query', {
 }, async ({ prompt, fresh, model, thinking }) => {
   const { text } = await query(prompt, { fresh, model, thinking });
   return { content: [{ type: 'text', text }] };
+});
+
+server.registerTool('generate_image', {
+  title: 'Generate image(s) with ChatGPT',
+  description: 'Sends an image-generation prompt to ChatGPT, waits for completion (up to 3 minutes), downloads all images from the latest assistant response, and returns local file paths.',
+  inputSchema: {
+    prompt: z.string().min(1),
+    output_dir: z.string().optional().describe('Optional output directory for downloaded images. Defaults to ~/.chatgpt-mcp/images/<timestamp>-<slug>/'),
+    fresh: z.boolean().optional().describe('Start a new chat before sending.'),
+    model: z.string().optional().describe('Switch to this model first (matches by visible name).'),
+    thinking: z.string().optional().describe('Thinking level: "standard" or "longer" (Pro/Thinking models only).'),
+    key: z.string().optional(),
+  },
+}, async ({ prompt, output_dir, fresh, model, thinking }) => {
+  const result = await generateImage(prompt, { output_dir, fresh, model, thinking });
+  return { content: [{ type: 'text', text: JSON.stringify(result) }] };
 });
 
 server.registerTool('read_last_response', {

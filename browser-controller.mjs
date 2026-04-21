@@ -2,13 +2,14 @@
 // Owns the patchright browser session. One persistent Chromium profile,
 // one singleton Page on chatgpt.com. Exposes high-level ops:
 //   query(prompt, key?) → { text, key }
+//   generateImage(prompt, outputDir?) → { files, text?, key }
 //   readLast(key?)      → { text, key }
 //   status(key?)        → "ready" | "busy" | "not_logged_in"
 
 import { chromium } from 'patchright';
 import { homedir } from 'node:os';
-import { mkdirSync, readFileSync, existsSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { mkdirSync, readFileSync, existsSync, writeFileSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parsePillText } from './parse-pill.mjs';
 export { parsePillText };
@@ -17,6 +18,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIR = join(homedir(), '.chatgpt-mcp');
 const PROFILE_DIR = join(DIR, 'profile');
 const CDP_FILE = join(DIR, 'cdp');
+const IMAGE_ROOT_DIR = join(DIR, 'images');
+const IMAGE_GENERATION_TIMEOUT_MS = 180_000;
 const SELECTORS = JSON.parse(readFileSync(join(__dirname, 'selectors.json'), 'utf8'));
 
 let _browser = null;
@@ -115,28 +118,267 @@ async function ensureReady(page) {
   await page.waitForSelector(SELECTORS.signals.generating, { state: 'detached', timeout: 90_000 }).catch(() => {});
 }
 
-async function waitForResponse(page, prevAssistantCount) {
-  // 1) wait for a new assistant turn to appear (up to 60s for network/queue)
+async function waitForResponse(page, prevAssistantCount, opts = {}) {
+  const assistantTimeoutMs = opts.assistantTimeoutMs ?? 60_000;
+  const generatingTimeoutMs = opts.generatingTimeoutMs ?? 0;
+
+  // 1) wait for a new assistant turn to appear.
   await page.waitForFunction(
     ({ sel, prev }) => document.querySelectorAll(sel).length > prev,
     { sel: SELECTORS.conversation.message_assistant, prev: prevAssistantCount },
-    { timeout: 60_000 },
+    { timeout: assistantTimeoutMs },
   );
-  // 2) wait for stop-button to disappear. No timeout — some replies (deep research, long
-  // thinking) take an hour. If you need to bail early, kill the process or call stop().
-  await page.waitForSelector(SELECTORS.signals.generating, { state: 'detached', timeout: 0 });
+  // 2) wait for stop-button to disappear.
+  await page.waitForSelector(SELECTORS.signals.generating, { state: 'detached', timeout: generatingTimeoutMs });
   // 3) settle: ensure the final message body exists and a turn-finished marker is present
   await page.waitForSelector(SELECTORS.signals.turn_finished_marker, { timeout: 10_000 }).catch(() => {});
   await page.waitForTimeout(250);
 }
 
-async function readLastAssistantText(page) {
+async function readLastAssistantPayload(page) {
   return page.evaluate((sel) => {
     const nodes = document.querySelectorAll(sel);
-    if (!nodes.length) return '';
+    if (!nodes.length) return { text: '', images: [] };
     const el = nodes[nodes.length - 1];
-    return (el.innerText || el.textContent || '').trim();
+    const text = (el.innerText || el.textContent || '').trim();
+    const images = Array.from(el.querySelectorAll('img, source[srcset]'))
+      .map((node) => {
+        if (node.tagName.toLowerCase() === 'source') {
+          const srcset = node.getAttribute('srcset') || '';
+          const first = srcset.split(',')[0] || '';
+          return first.trim().split(/\s+/)[0] || '';
+        }
+        const img = /** @type {HTMLImageElement} */ (node);
+        return img.currentSrc || img.src || '';
+      })
+      .filter((src) => src && !src.startsWith('data:'));
+    return { text, images };
   }, SELECTORS.conversation.message_assistant);
+}
+
+async function readLastAssistantText(page) {
+  const { text } = await readLastAssistantPayload(page);
+  return text;
+}
+
+function slugifyPrompt(prompt) {
+  const slug = prompt.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
+  return slug || 'image';
+}
+
+function formatTimestamp(date) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+}
+
+function resolveOutputDir(prompt, outputDir) {
+  if (outputDir) {
+    const dir = isAbsolute(outputDir) ? outputDir : resolve(process.cwd(), outputDir);
+    mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+  const dir = join(IMAGE_ROOT_DIR, `${formatTimestamp(new Date())}-${slugifyPrompt(prompt)}`);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function inferImageExtension(url, contentType) {
+  const normalizedType = String(contentType || '').toLowerCase();
+  if (normalizedType.includes('image/png')) return '.png';
+  if (normalizedType.includes('image/jpeg') || normalizedType.includes('image/jpg')) return '.jpg';
+  if (normalizedType.includes('image/webp')) return '.webp';
+  if (normalizedType.includes('image/gif')) return '.gif';
+  if (normalizedType.includes('image/avif')) return '.avif';
+
+  const safeUrl = (() => {
+    try { return new URL(url).pathname; } catch { return ''; }
+  })();
+  const base = basename(safeUrl || '').toLowerCase();
+  const ext = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.avif'].find((candidate) => base.endsWith(candidate));
+  if (ext === '.jpeg') return '.jpg';
+  return ext || '.png';
+}
+
+function isLikelyGeneratedImageUrl(rawUrl) {
+  if (!rawUrl) return false;
+  if (rawUrl.startsWith('blob:')) return true;
+
+  let parsed;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  if (host.includes('oaiusercontent.com') || host.includes('oaistatic.com')) return true;
+  if (host === 'chatgpt.com' && parsed.pathname.includes('/backend-api/estuary/content')) {
+    const id = parsed.searchParams.get('id') || '';
+    return id.startsWith('file-') || id.startsWith('file_');
+  }
+  return false;
+}
+
+function normalizeToCandidates(rawUrls, baseUrl, source) {
+  const candidates = [];
+  const seen = new Set();
+
+  for (const rawUrl of rawUrls) {
+    if (!rawUrl) continue;
+    const url = rawUrl.startsWith('blob:')
+      ? rawUrl
+      : (() => {
+          try { return new URL(rawUrl, baseUrl).toString(); } catch { return ''; }
+        })();
+    if (!url || !isLikelyGeneratedImageUrl(url)) continue;
+    if (seen.has(url)) continue;
+    seen.add(url);
+    candidates.push({ key: url, url, source });
+  }
+
+  return candidates;
+}
+
+async function collectAssistantImageCandidates(page) {
+  const { images } = await readLastAssistantPayload(page);
+  return normalizeToCandidates(images, page.url(), 'assistant');
+}
+
+async function collectPageImageCandidates(page) {
+  const rawUrls = await page.evaluate(() => {
+    const urls = [];
+    for (const node of document.querySelectorAll('img, source[srcset]')) {
+      if (node.tagName.toLowerCase() === 'source') {
+        const srcset = node.getAttribute('srcset') || '';
+        const first = srcset.split(',')[0] || '';
+        const src = first.trim().split(/\s+/)[0] || '';
+        if (src) urls.push(src);
+        continue;
+      }
+      const img = /** @type {HTMLImageElement} */ (node);
+      const src = img.currentSrc || img.src || '';
+      if (src) urls.push(src);
+    }
+    return urls;
+  });
+  return normalizeToCandidates(rawUrls, page.url(), 'page');
+}
+
+async function collectSeenImageKeys(page) {
+  const assistant = await collectAssistantImageCandidates(page);
+  const allPage = await collectPageImageCandidates(page);
+  return new Set([...assistant, ...allPage].map((candidate) => candidate.key));
+}
+
+async function waitForNewImageCandidates(page, seenKeys, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const assistant = await collectAssistantImageCandidates(page);
+    const freshAssistant = assistant.filter((candidate) => !seenKeys.has(candidate.key));
+    if (freshAssistant.length) return freshAssistant;
+
+    const allPage = await collectPageImageCandidates(page);
+    const freshPage = allPage.filter((candidate) => !seenKeys.has(candidate.key));
+    if (freshPage.length) return freshPage;
+
+    await page.waitForTimeout(1000);
+  }
+  return [];
+}
+
+async function readBlobImageFromPage(page, blobUrl) {
+  const payload = await page.evaluate(async (url) => {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        return { ok: false, error: `blob fetch failed: ${response.status}` };
+      }
+      const blob = await response.blob();
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      let binary = '';
+      const chunkSize = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+      }
+      return {
+        ok: true,
+        base64: btoa(binary),
+        contentType: blob.type || response.headers.get('content-type') || '',
+      };
+    } catch (error) {
+      return { ok: false, error: String(error) };
+    }
+  }, blobUrl);
+
+  if (!payload?.ok || !payload.base64) {
+    throw new Error(payload?.error || `failed to read blob url: ${blobUrl}`);
+  }
+  return {
+    buffer: Buffer.from(payload.base64, 'base64'),
+    contentType: payload.contentType || '',
+  };
+}
+
+async function downloadImages(page, candidates, outputDir) {
+  const request = page.context().request;
+  const uniqueCandidates = [];
+  const seen = new Set();
+  for (const candidate of candidates) {
+    if (!seen.has(candidate.key)) {
+      seen.add(candidate.key);
+      uniqueCandidates.push(candidate);
+    }
+  }
+  const files = [];
+
+  for (const [index, candidate] of uniqueCandidates.entries()) {
+    let buffer;
+    let contentType = '';
+
+    if (candidate.url.startsWith('blob:')) {
+      const blob = await readBlobImageFromPage(page, candidate.url);
+      buffer = blob.buffer;
+      contentType = blob.contentType;
+    } else {
+      const response = await request.get(candidate.url, { timeout: 30_000 });
+      if (!response.ok()) {
+        throw new Error(`failed to download image ${index + 1}: ${response.status()} ${response.statusText()} (${candidate.url})`);
+      }
+      buffer = await response.body();
+      contentType = response.headers()['content-type'] || '';
+    }
+
+    const ext = inferImageExtension(candidate.url, contentType);
+    const file = join(outputDir, `${String(index + 1).padStart(2, '0')}${ext}`);
+    writeFileSync(file, buffer);
+    files.push(file);
+  }
+
+  return files;
+}
+
+async function sendPrompt(page, prompt) {
+  if (!prompt || !prompt.trim()) throw new Error('prompt required');
+  await ensureReady(page);
+
+  const prevAssistantCount = await page.locator(SELECTORS.conversation.message_assistant).count();
+
+  const input = page.locator(SELECTORS.composer.prompt_input);
+  await input.click();
+  // ProseMirror accepts typed input; use keyboard insert to be safe with emoji/long text
+  await page.keyboard.insertText(prompt);
+
+  // Send: click the send button (appears only when text is present)
+  const send = page.locator(SELECTORS.composer.send_button);
+  await send.waitFor({ state: 'visible', timeout: 5_000 });
+  await send.click();
+
+  return prevAssistantCount;
+}
+
+async function sendPromptAndWait(page, prompt, opts = {}) {
+  const prevAssistantCount = await sendPrompt(page, prompt);
+  await waitForResponse(page, prevAssistantCount, opts);
 }
 
 async function _queryImpl(prompt, opts = {}) {
@@ -146,25 +388,39 @@ async function _queryImpl(prompt, opts = {}) {
     if (opts.fresh) await _newChatImpl();
     if (opts.model) await _setModelImpl(opts.model);
     if (opts.thinking) await _setThinkingImpl(opts.thinking);
-    await ensureReady(page);
-
-    const prevAssistantCount = await page.locator(SELECTORS.conversation.message_assistant).count();
-
-    const input = page.locator(SELECTORS.composer.prompt_input);
-    await input.click();
-    // ProseMirror accepts typed input; use keyboard insert to be safe with emoji/long text
-    await page.keyboard.insertText(prompt);
-
-    // Send: click the send button (appears only when text is present)
-    const send = page.locator(SELECTORS.composer.send_button);
-    await send.waitFor({ state: 'visible', timeout: 5_000 });
-    await send.click();
-
-    await waitForResponse(page, prevAssistantCount);
+    // Queries intentionally allow long-running generations (deep research, longer thinking).
+    await sendPromptAndWait(page, prompt, { generatingTimeoutMs: 0 });
     const text = await readLastAssistantText(page);
     return { text, key: 'default' };
 }
 export const query = (prompt, opts) => serialize(() => _queryImpl(prompt, opts));
+
+async function _generateImageImpl(prompt, opts = {}) {
+  const page = await getPage();
+  const s = await status();
+  if (s.state === 'not_logged_in') throw new Error('not_logged_in: run `chatgpt-mcp launch` and sign in');
+  if (opts.fresh) await _newChatImpl();
+  if (opts.model) await _setModelImpl(opts.model);
+  if (opts.thinking) await _setThinkingImpl(opts.thinking);
+
+  const seenKeys = await collectSeenImageKeys(page);
+  const prevAssistantCount = await sendPrompt(page, prompt);
+  const newCandidates = await waitForNewImageCandidates(page, seenKeys, IMAGE_GENERATION_TIMEOUT_MS);
+
+  // Best effort: gather text if an assistant turn exists, but don't fail image flow if it doesn't.
+  await waitForResponse(page, prevAssistantCount, {
+    assistantTimeoutMs: 10_000,
+    generatingTimeoutMs: 10_000,
+  }).catch(() => {});
+  const payload = await readLastAssistantPayload(page);
+
+  if (!newCandidates.length) return { files: [], text: payload.text, key: 'default' };
+
+  const outputDir = resolveOutputDir(prompt, opts.output_dir || opts.outputDir);
+  const files = await downloadImages(page, newCandidates, outputDir);
+  return { files, text: payload.text, key: 'default' };
+}
+export const generateImage = (prompt, opts) => serialize(() => _generateImageImpl(prompt, opts));
 
 async function _readLastImpl() {
   const page = await getPage();
@@ -175,9 +431,20 @@ export const readLast = () => serialize(_readLastImpl);
 
 async function _newChatImpl() {
   const page = await getPage();
+  try {
+    await page.goto(SELECTORS.urls.home, { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector(SELECTORS.composer.prompt_input, { timeout: 15_000 });
+    return { key: 'default' };
+  } catch {}
+
   const btn = page.locator(SELECTORS.nav.new_chat_button);
   if (await btn.count()) {
-    await btn.first().click();
+    try {
+      await btn.first().click({ timeout: 10_000 });
+    } catch {
+      // Sidebar overlays can intermittently intercept pointer events.
+      await btn.first().evaluate((el) => el.click());
+    }
   } else {
     await page.goto(SELECTORS.urls.home, { waitUntil: 'domcontentloaded' });
   }

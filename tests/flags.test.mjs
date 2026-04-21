@@ -22,6 +22,14 @@ test('--thinking consumes the next token', () => {
   assert.deepEqual(parseFlags(['--thinking', 'longer']), { _: [], thinking: 'longer' });
 });
 
+test('--output-dir consumes the next token', () => {
+  assert.deepEqual(parseFlags(['--output-dir', '/tmp/images']), { _: [], output_dir: '/tmp/images' });
+});
+
+test('--output_dir consumes the next token', () => {
+  assert.deepEqual(parseFlags(['--output_dir', '/tmp/images']), { _: [], output_dir: '/tmp/images' });
+});
+
 test('flags mixed with positional args in any order', () => {
   assert.deepEqual(
     parseFlags(['--fresh', '--model', 'pro', 'what', 'is', '2+2']),
@@ -40,6 +48,13 @@ test('full combo from query subcommand', () => {
   assert.deepEqual(
     parseFlags(['--fresh', '--model', 'pro', '--thinking', 'longer', 'solve', 'this']),
     { _: ['solve', 'this'], fresh: true, model: 'pro', thinking: 'longer' },
+  );
+});
+
+test('full combo from image subcommand', () => {
+  assert.deepEqual(
+    parseFlags(['--fresh', '--model', 'pro', '--thinking', 'longer', '--output-dir', '/tmp', 'draw', 'a', 'cat']),
+    { _: ['draw', 'a', 'cat'], fresh: true, model: 'pro', thinking: 'longer', output_dir: '/tmp' },
   );
 });
 

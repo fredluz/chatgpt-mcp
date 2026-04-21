@@ -8,6 +8,7 @@ export function parseFlags(argv) {
     if (a === '--fresh') out.fresh = true;
     else if (a === '--model') out.model = argv[++i];
     else if (a === '--thinking') out.thinking = argv[++i];
+    else if (a === '--output-dir' || a === '--output_dir') out.output_dir = argv[++i];
     else out._.push(a);
   }
   return out;
