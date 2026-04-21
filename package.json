@@ -32,6 +32,7 @@
   ],
   "scripts": {
     "launch": "node cli.mjs launch",
+    "daemon": "node cli.mjs daemon",
     "mcp": "node cli.mjs server",
     "http": "node cli.mjs http",
     "check": "node cli.mjs check",

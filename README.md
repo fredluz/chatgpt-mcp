@@ -13,6 +13,7 @@ Exposes three surfaces on top of the same browser controller:
 - **Persistent login** — one-time sign-in in a dedicated Chrome profile; session survives restarts
 - **Shared session over CDP** — launcher keeps Chrome open; MCP server, HTTP API, and CLI attach to the same browser via `http://127.0.0.1:9222`
 - **Single-threaded controller** — every mutating op goes through a FIFO mutex so concurrent calls never collide
+- **Async mailbox queue** — submit work and get a `request_id` immediately; daemon processes requests and persists responses to disk
 - **Long responses** — no internal timeout on generation; a single reply can take up to an hour (deep research, Pro Thinking) without anything bailing
 - **Model switching** — `Instant` / `Thinking` / `Pro` via stable `data-testid` map
 - **Thinking-level switching** — `Standard` / `Longer` on Pro/Thinking models, matched by SVG sprite icon (locale-independent) with localized-text fallback
@@ -30,7 +31,10 @@ npm install -g @guilhermesilveira/chatgpt-mcp   # installs `chatgpt-mcp` globall
 # Terminal 1 — launch Chrome, log in once
 chatgpt-mcp launch
 
-# Terminal 2 — use it
+# Terminal 2 — run async worker
+chatgpt-mcp daemon
+
+# Terminal 3 — use it
 chatgpt-mcp status
 chatgpt-mcp query "what is 2+2? one word"
 ```
@@ -46,11 +50,20 @@ chatgpt-mcp query "what is 2+2? one word"
                                            │
                           ┌────────────────┴──────────────┐
                           │    browser-controller.mjs     │
-                          │    (patchright, FIFO mutex)   │
+                          │ (legacy single tab + async    │
+                          │   ephemeral tab helpers)       │
                           └──┬────────────┬────────────┬──┘
                              │            │            │
                      mcp-server.mjs   http-api.mjs   cli.mjs
                         (stdio)      (bearer token)
+                             │            │            │
+                             └──────┬─────┴─────┬─────┘
+                                    │ mailbox.mjs │
+                                    │ requests/    │
+                                    │ responses/   │
+                                    └──────┬──────┘
+                                           │
+                                      daemon.mjs
 ```
 
 The first process to call the controller tries to attach over CDP; if the launcher isn't running, it falls back to launching its own persistent context. Either way the profile lives at `~/.chatgpt-mcp/profile/`.
@@ -59,9 +72,13 @@ The first process to call the controller tries to attach over CDP; if the launch
 
 ```bash
 chatgpt-mcp launch              # start Chrome with persistent profile + CDP
+chatgpt-mcp daemon              # async mailbox worker (open per-request tab, persist, notify)
 chatgpt-mcp server              # run the MCP stdio server (for Claude Code)
 chatgpt-mcp http                # run the localhost HTTP API
 chatgpt-mcp status              # state=ready model=Pro thinking=Länger
+chatgpt-mcp status <request_id> # queued request status JSON
+chatgpt-mcp submit "prompt..." --agent foo   # queue prompt, print request_id immediately
+chatgpt-mcp fetch <request_id>  # fetch queued response JSON
 chatgpt-mcp query "prompt..."   # send a prompt, print the reply
 chatgpt-mcp image "prompt..."   # generate image(s), download, print local file paths
 chatgpt-mcp last                # print the last assistant message
@@ -71,6 +88,7 @@ chatgpt-mcp model pro           # switch model
 chatgpt-mcp thinking            # print current thinking level
 chatgpt-mcp thinking longer     # switch thinking level
 chatgpt-mcp stop                # abort an in-flight generation
+chatgpt-mcp tabs cleanup        # close leftover async worker tabs (including error tabs)
 chatgpt-mcp check               # selector self-heal report
 ```
 
@@ -83,7 +101,10 @@ chatgpt-mcp query --fresh --model pro --thinking longer "complex question..."
 - `--fresh` — start a new chat first.
 - `--model <name>` — switch model first. Known names: `instant`, `thinking`, `pro` (see `selectors.json → model.name_map`).
 - `--thinking <level>` — set thinking level first. Known: `standard`, `longer`.
-- `--output-dir <path>` — only for `image`; optional destination directory for downloaded files. Default: `~/.chatgpt-mcp/images/<timestamp>-<slug>/`.
+- `--agent <name>` — tag queued work for notifications and per-agent parallel scheduling.
+- `--mode <text|image>` — only for async `submit`/`query`; `image` waits for files and returns file paths.
+- `--image` — shorthand for `--mode image` in async commands.
+- `--output-dir <path>` — destination directory for downloaded images (`image` command, or async with `--mode image`). Default: `~/.chatgpt-mcp/images/<timestamp>-<slug>/`.
 
 `image` output:
 
@@ -91,16 +112,60 @@ chatgpt-mcp query --fresh --model pro --thinking longer "complex question..."
 - Downloads all images found in the latest assistant message.
 - Uses a 3-minute generation timeout.
 
+## Async mailbox queue
+
+Queue layout (crash-safe, file-based):
+
+- `~/.chatgpt-mcp/requests/<id>.json` — pending/active requests
+- `~/.chatgpt-mcp/responses/<id>.json` — complete/error responses
+
+`request_id` format:
+
+- `<timestamp>-<random4>-<agent>`
+
+Flow:
+
+1. `submit` writes request JSON atomically and returns `request_id` immediately.
+2. `daemon` claims requests and runs each request in its own ephemeral ChatGPT tab.
+3. On success, daemon writes `responses/<id>.json` atomically, fsyncs, reads back to verify, then closes the tab.
+4. On failure, daemon writes `responses/<id>.json` with `state=error` and leaves the tab open for inspection.
+5. If `~/.clawd/bin/send-to-agent.sh` exists, daemon pings `<agent>` when the response is ready.
+
+Daemon tab lifecycle:
+
+- Startup: closes stale `chatgpt-mcp-active:*` tabs from prior crashes.
+- Shutdown: closes active worker tabs; error tabs are intentionally preserved.
+- Manual cleanup: `chatgpt-mcp tabs cleanup` closes all daemon-marked tabs (including error tabs).
+
+Example:
+
+```bash
+RID=$(chatgpt-mcp submit --agent worker-a --model pro --thinking longer "summarize this PR")
+chatgpt-mcp status "$RID"     # {"state":"pending",...}
+# ...do unrelated work...
+chatgpt-mcp fetch "$RID"      # {"text":"...","files":[],"complete":true}
+```
+
+Async image example:
+
+```bash
+RID=$(chatgpt-mcp submit --mode image --output-dir /tmp/chatgpt-images "Create a red warning triangle PNG with transparent background")
+chatgpt-mcp status "$RID"
+chatgpt-mcp fetch "$RID"      # {"text":"...","files":["/tmp/chatgpt-images/01.png"],"complete":true}
+```
+
 ## MCP tools
 
 Registered by `mcp-server.mjs`:
 
 | Tool | Description |
 |------|-------------|
-| `query` | Send prompt, wait for full reply, return text. Supports `fresh`, `model`, `thinking`. |
-| `generate_image` | Send image prompt, wait up to 3 minutes, download one or more images, return JSON `{ files, text? }`. Supports `output_dir`, `fresh`, `model`, `thinking`. |
+| `query` | Convenience wrapper over submit+poll+fetch. Supports `fresh`, `model`, `thinking`, `agent`, `mode`, `output_dir`. In `mode=image`, returns JSON with files. |
+| `generate_image` | Synchronous image flow on the shared tab. Waits up to 3 minutes, downloads one or more images, returns JSON `{ files, text? }`. Supports `output_dir`, `fresh`, `model`, `thinking`. |
+| `submit` | Queue a prompt and return `{ request_id }` immediately. Supports `agent`, `fresh`, `model`, `thinking`, `mode`, `output_dir`. |
+| `status` | With `request_id`: queued request status `{ state, agent, elapsed_ms, error? }`. Without `request_id`: session status `{ state, model, thinking }`. |
+| `fetch` | Fetch queued request result `{ text, files[], complete, error? }`. |
 | `read_last_response` | Read the last assistant message without sending anything. |
-| `status` | JSON `{ state, model, thinking }`. |
 | `new_chat` | Open a new chat. |
 | `set_model` / `get_model` | Switch / read current model. |
 | `set_thinking` / `get_thinking` | Switch / read current thinking level. |

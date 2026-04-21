@@ -11,9 +11,10 @@ import { homedir } from 'node:os';
 import { mkdirSync, readFileSync, writeFileSync, existsSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  query, readLast, status, newChat, setModel, getModel,
+  readLast, status, newChat, setModel, getModel,
   setThinking, getThinking, stop,
 } from './browser-controller.mjs';
+import { query as queuedQuery } from './mailbox.mjs';
 
 const DIR = join(homedir(), '.chatgpt-mcp');
 const TOKEN_PATH = join(DIR, 'token');
@@ -56,7 +57,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && req.url === '/query') {
       const { prompt, fresh, model, thinking } = await readBody(req);
       if (!prompt) return send(res, 400, { error: 'prompt required' });
-      const { text } = await query(prompt, { fresh, model, thinking });
+      const { text } = await queuedQuery(prompt, { fresh, model, thinking });
       return send(res, 200, { text });
     }
     if (req.method === 'GET' && req.url === '/thinking') {
