@@ -46,7 +46,7 @@ export function registerMcpTools(server, deps = {}) {
       model: z.string().optional().describe('Switch to this model first (matches by visible name).'),
       thinking: z.string().optional().describe('Thinking level: "standard" or "longer" (Pro/Thinking models only).'),
       agent: z.string().optional().describe('Agent label used for async request ownership.'),
-      mode: z.enum(['text', 'image']).optional().describe('Response mode. Use "image" to wait for downloaded image files.'),
+      mode: z.enum(['text', 'image']).optional().describe('Response mode. Use "image" to wait for downloaded image files. Image mode routes to non-Pro GPT-5; Pro models are rejected.'),
       output_dir: z.string().optional().describe('Optional output directory for image downloads when mode=image.'),
       key: z.string().optional(),
     },

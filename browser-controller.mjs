@@ -28,6 +28,29 @@ let _page = null;
 let _ownsBrowser = false;
 const _ownedEphemeralTabs = new Map();
 
+function isContextClosedError(error) {
+  return /target page, context or browser has been closed/i.test(String(error?.message || error || ''));
+}
+
+function resetSessionHandles() {
+  _browser = null;
+  _context = null;
+  _page = null;
+  _ownsBrowser = false;
+  _ownedEphemeralTabs.clear();
+}
+
+function isContextUsable() {
+  if (!_context) return false;
+  if (_browser && typeof _browser.isConnected === 'function' && !_browser.isConnected()) return false;
+  try {
+    _context.pages();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // FIFO mutex for legacy singleton-page mutations.
 let _chain = Promise.resolve();
 function serialize(fn) {
@@ -69,18 +92,31 @@ async function tryConnectCDP() {
 
 async function launchOwn() {
   mkdirSync(PROFILE_DIR, { recursive: true });
+  const cdpUrl = process.env.CHATGPTPRO_CDP || 'http://127.0.0.1:9222';
+  let cdpPort = 9222;
+  try {
+    const parsed = new URL(cdpUrl);
+    cdpPort = Number(parsed.port || 9222);
+  } catch {}
+
   const context = await chromium.launchPersistentContext(PROFILE_DIR, {
     channel: 'chrome',
     headless: false,
     viewport: null,
-    args: ['--start-maximized'],
+    args: [
+      '--start-maximized',
+      `--remote-debugging-port=${cdpPort}`,
+      '--remote-debugging-address=127.0.0.1',
+    ],
   });
+  writeFileSync(CDP_FILE, `http://127.0.0.1:${cdpPort}\n`);
   log('launched own persistent context');
   return { browser: null, context, owns: true };
 }
 
 async function getContext() {
-  if (_context) return _context;
+  if (isContextUsable()) return _context;
+  resetSessionHandles();
 
   const attached = (await tryConnectCDP()) || (await launchOwn());
   _browser = attached.browser;
@@ -102,7 +138,7 @@ async function pickChatGPTPage(context) {
 }
 
 export async function getPage() {
-  if (_page && !_page.isClosed()) return _page;
+  if (_page && !_page.isClosed() && isContextUsable()) return _page;
   const context = await getContext();
   _page = await pickChatGPTPage(context);
   return _page;
@@ -121,13 +157,25 @@ async function getTabMarker(page) {
 }
 
 export async function createEphemeralChatPage(requestId) {
-  const context = await getContext();
+  let lastError = null;
+  let page = null;
 
-  const page = await serializePageCreate(async () => {
-    const p = await context.newPage();
-    await p.goto(SELECTORS.urls.home, { waitUntil: 'domcontentloaded' });
-    return p;
-  });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const context = await getContext();
+      page = await serializePageCreate(async () => {
+        const p = await context.newPage();
+        await p.goto(SELECTORS.urls.home, { waitUntil: 'domcontentloaded' });
+        return p;
+      });
+      break;
+    } catch (error) {
+      lastError = error;
+      if (!isContextClosedError(error) || attempt === 1) throw error;
+      resetSessionHandles();
+    }
+  }
+  if (!page && lastError) throw lastError;
 
   _ownedEphemeralTabs.set(page, {
     requestId: String(requestId || ''),
@@ -750,10 +798,5 @@ export async function shutdown() {
     if (_ownsBrowser) await _context?.close();
     else await _browser?.close();
   } catch {}
-
-  _browser = null;
-  _context = null;
-  _page = null;
-  _ownsBrowser = false;
-  _ownedEphemeralTabs.clear();
+  resetSessionHandles();
 }

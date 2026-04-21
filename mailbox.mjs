@@ -49,6 +49,22 @@ function normalizeMode(mode) {
   return raw === 'image' ? 'image' : 'text';
 }
 
+function normalizeModelName(model) {
+  return String(model ?? '').trim().toLowerCase();
+}
+
+function isProModel(model) {
+  const normalized = normalizeModelName(model);
+  if (!normalized) return false;
+  return normalized === 'pro'
+    || normalized === 'gpt-5-pro'
+    || normalized === 'gpt5-pro'
+    || normalized === 'gpt5pro'
+    || normalized === 'extended-pro'
+    || normalized === 'extended pro'
+    || normalized.includes(' pro');
+}
+
 export function makeRequestId(agent = 'default') {
   const ts = Date.now();
   const random4 = randomBytes(2).toString('hex');
@@ -156,6 +172,14 @@ export async function submit(prompt, opts = {}) {
   const requestId = makeRequestId(opts.agent);
   const createdAt = nowIso();
   const mode = normalizeMode(opts.mode);
+  const model = mode === 'image'
+    ? (() => {
+        if (opts.model && isProModel(opts.model)) {
+          throw new Error('mode=image does not support Pro models; use --model gpt-5 or omit --model');
+        }
+        return opts.model ?? 'gpt-5';
+      })()
+    : (opts.model ?? null);
   const response_path = responsePath(requestId);
   const image_dir = mode === 'image'
     ? deriveImageDir(requestId, createdAt, prompt, opts.output_dir ?? null)
@@ -165,7 +189,7 @@ export async function submit(prompt, opts = {}) {
     state: 'pending',
     prompt,
     agent: normalizeAgent(opts.agent),
-    model: opts.model ?? null,
+    model,
     thinking: opts.thinking ?? null,
     fresh: Boolean(opts.fresh),
     mode,
@@ -398,9 +422,35 @@ export async function readDaemonPid() {
   }
 }
 
-export async function writeDaemonPid(pid = process.pid) {
+export async function writeDaemonPid(pid = process.pid, opts = {}) {
+  const exclusive = Boolean(opts.exclusive);
+  const path = daemonPidPath();
   await mkdir(baseDir(), { recursive: true });
-  await writeFile(daemonPidPath(), `${pid}\n`, { encoding: 'utf8' });
+
+  const write = async () => {
+    await writeFile(path, `${pid}\n`, { encoding: 'utf8', flag: exclusive ? 'wx' : 'w' });
+  };
+
+  if (!exclusive) {
+    await write();
+    return true;
+  }
+
+  try {
+    await write();
+    return true;
+  } catch (error) {
+    if (error.code !== 'EEXIST') throw error;
+
+    const existingPid = await readDaemonPid();
+    if (!existingPid || !isPidAlive(existingPid)) {
+      await rm(path, { force: true });
+      await write();
+      return true;
+    }
+
+    return false;
+  }
 }
 
 export async function removeDaemonPid(expectedPid = process.pid) {

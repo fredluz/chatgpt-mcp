@@ -109,7 +109,7 @@ exocortex-chatgpt query --fresh --model pro --thinking longer "complex question.
 - `--model <name>` — switch model first. Known names: `instant`, `thinking`, `pro` (see `selectors.json → model.name_map`).
 - `--thinking <level>` — set thinking level first. Known: `standard`, `longer`.
 - `--agent <name>` — tag queued work for notifications and per-agent parallel scheduling.
-- `--mode <text|image>` — only for async `submit`/`query`; `image` waits for files and returns file paths.
+- `--mode <text|image>` — only for async `submit`/`query`; `image` waits for files and returns file paths. Image mode defaults to `gpt-5` and rejects Pro models.
 - `--image` — shorthand for `--mode image` in async commands.
 - `--output-dir <path>` — destination directory for downloaded images (`image` command, or async with `--mode image`). Default: `~/.chatgpt-mcp/images/<timestamp>-<slug>/`.
 
@@ -161,6 +161,8 @@ exocortex-chatgpt status "$RID"
 exocortex-chatgpt fetch "$RID"      # {"text":"...","files":["/tmp/chatgpt-images/01.png"],"complete":true}
 ```
 
+Passing `--model pro` with `--mode image` is rejected with a validation error.
+
 ## MCP tools
 
 Registered by `mcp-server.mjs`:
@@ -171,7 +173,7 @@ The legacy `submit` interface is kept in CLI only (`exocortex-chatgpt submit`) f
 
 | Tool | Description |
 |------|-------------|
-| `query` | Convenience wrapper over submit+poll+fetch. Supports `fresh`, `model`, `thinking`, `agent`, `mode`, `output_dir`. In `mode=image`, returns JSON with files. |
+| `query` | Convenience wrapper over submit+poll+fetch. Supports `fresh`, `model`, `thinking`, `agent`, `mode`, `output_dir`. In `mode=image`, defaults to non-Pro `gpt-5`, rejects Pro models, and returns JSON with files. |
 | `generate_image` | Synchronous image flow on the shared tab. Waits up to 3 minutes, downloads one or more images, returns JSON `{ files, text? }`. Supports `output_dir`, `fresh`, `model`, `thinking`. |
 | `submit_pro` | Queue a heavy-reasoning text prompt and return `{ request_id, response_path }` immediately. Internally forces Pro + longer thinking + text mode. |
 | `submit_image` | Queue an image-generation prompt and return `{ request_id, image_dir }` immediately. Internally forces `gpt-5` + image mode + `fresh=true`. |

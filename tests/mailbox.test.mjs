@@ -8,12 +8,15 @@ import {
   fetch,
   markRequestActive,
   notifyAgentIfAvailable,
+  readDaemonPid,
   readRequest,
+  removeDaemonPid,
   removeRequest,
   requestPath,
   responsePath,
   status,
   submit,
+  writeDaemonPid,
   writeResponseVerified,
 } from '../mailbox.mjs';
 
@@ -64,6 +67,20 @@ test('submit in image mode returns deterministic image_dir and request output_di
     assert.equal(req.mode, 'image');
     assert.equal(req.output_dir, image_dir);
     assert.equal(req.image_dir, image_dir);
+    assert.equal(req.model, 'gpt-5');
+  });
+});
+
+test('submit in image mode rejects Pro model routing', async () => {
+  await withMailboxHome(async () => {
+    await assert.rejects(
+      () => submit('Draw a red circle', { agent: 'img', mode: 'image', model: 'pro' }),
+      /mode=image does not support Pro models/,
+    );
+    await assert.rejects(
+      () => submit('Draw a red circle', { agent: 'img', mode: 'image', model: 'gpt-5-pro' }),
+      /mode=image does not support Pro models/,
+    );
   });
 });
 
@@ -182,5 +199,18 @@ test('notification hook calls runner when send-to-agent script exists', async ()
       runner: async () => { throw new Error('should not run'); },
     });
     assert.equal(missing, false);
+  });
+});
+
+test('writeDaemonPid exclusive mode rejects duplicate live daemon pid', async () => {
+  await withMailboxHome(async () => {
+    const first = await writeDaemonPid(process.pid, { exclusive: true });
+    assert.equal(first, true);
+
+    const second = await writeDaemonPid(process.pid + 1, { exclusive: true });
+    assert.equal(second, false);
+    assert.equal(await readDaemonPid(), process.pid);
+
+    await removeDaemonPid(process.pid);
   });
 });

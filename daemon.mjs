@@ -29,6 +29,7 @@ const POLL_MS = Number(process.env.CHATGPT_MCP_DAEMON_POLL_MS || 250);
 let stopping = false;
 const inFlightByRequest = new Map();
 const inFlightByAgent = new Map();
+let pidClaimed = false;
 
 function requestStop() {
   stopping = true;
@@ -98,9 +99,14 @@ async function waitForDrain() {
 }
 
 try {
+  pidClaimed = await writeDaemonPid(process.pid, { exclusive: true });
+  if (!pidClaimed) {
+    console.error('[daemon] already running; exiting duplicate worker');
+    process.exit(0);
+  }
+
   // Close stale "active" tabs from prior crashes. Keep error tabs.
   await cleanupEphemeralTabs({ includeErrors: false, includeUnmarked: false });
-  await writeDaemonPid();
 
   console.error('[daemon] async mailbox worker running');
 
@@ -113,6 +119,8 @@ try {
 
   await waitForDrain();
 } finally {
-  await removeDaemonPid().catch(() => {});
+  if (pidClaimed) {
+    await removeDaemonPid().catch(() => {});
+  }
   await shutdown();
 }
