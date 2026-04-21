@@ -5,16 +5,23 @@ import { mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from 'nod
 import { homedir } from 'node:os';
 import { dirname, extname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  getDaemonPidPath,
+  getHome,
+  getImagesDir,
+  getRequestsDir,
+  getResponsesDir,
+} from './runtime-paths.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CLI_PATH = join(__dirname, 'cli.mjs');
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
 
-function baseDir() { return process.env.CHATGPT_MCP_HOME || join(homedir(), '.chatgpt-mcp'); }
-function requestsDir() { return join(baseDir(), 'requests'); }
-function responsesDir() { return join(baseDir(), 'responses'); }
-function imagesDir() { return join(baseDir(), 'images'); }
-function daemonPidPath() { return join(baseDir(), 'daemon.pid'); }
+function baseDir() { return getHome(); }
+function requestsDir() { return getRequestsDir(); }
+function responsesDir() { return getResponsesDir(); }
+function imagesDir() { return getImagesDir(); }
+function daemonPidPath() { return getDaemonPidPath(); }
 function defaultNotifyScriptPath() { return join(homedir(), '.clawd', 'bin', 'send-to-agent.sh'); }
 
 function nowIso() {

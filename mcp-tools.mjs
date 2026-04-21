@@ -63,7 +63,7 @@ export function registerMcpTools(server, deps = {}) {
     description: 'BLOCKING up to 3min. Agents prefer submit_image (non-blocking, correctly-routed). This sync tool is for CLI and interactive single-user use. Sends an image-generation prompt, waits for completion (up to 3 minutes), downloads images from the latest assistant response, and returns local file paths.',
     inputSchema: {
       prompt: z.string().min(1),
-      output_dir: z.string().optional().describe('Optional output directory. Defaults to ~/.chatgpt-mcp/images/<timestamp>-<slug>/'),
+      output_dir: z.string().optional().describe('Optional output directory. Defaults to <CHATGPT_MCP_HOME>/images/<timestamp>-<slug>/ (or ~/.chatgpt-mcp/images/... by default).'),
       fresh: z.boolean().optional().describe('Start a new chat before sending.'),
       model: z.string().optional().describe('Switch to this model first (matches by visible name).'),
       thinking: z.string().optional().describe('Thinking level: "standard" or "longer" (Pro/Thinking models only).'),

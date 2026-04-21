@@ -9,6 +9,7 @@
   },
   "files": [
     "*.mjs",
+    "scripts/camoufox-bootstrap.mjs",
     "selectors.json",
     "README.md"
   ],
@@ -37,11 +38,14 @@
     "mcp": "node cli.mjs server",
     "http": "node cli.mjs http",
     "check": "node cli.mjs check",
+    "camoufox:fetch": "npx camoufox fetch",
+    "postinstall": "node scripts/camoufox-bootstrap.mjs",
     "test": "node --test 'tests/*.test.mjs'"
   },
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "camoufox": "^0.1.19",
     "patchright": "^1.59.4"
   }
 }

@@ -4,18 +4,15 @@
 // Async mailbox usage: ephemeral request tabs created in the shared context.
 
 import { chromium } from 'patchright';
-import { homedir } from 'node:os';
 import { mkdirSync, readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parsePillText } from './parse-pill.mjs';
+import { getCDPFilePath, getImagesDir, getProfileDir } from './runtime-paths.mjs';
 export { parsePillText };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DIR = process.env.CHATGPT_MCP_HOME || join(homedir(), '.chatgpt-mcp');
-const PROFILE_DIR = join(DIR, 'profile');
-const CDP_FILE = join(DIR, 'cdp');
-const IMAGE_ROOT_DIR = join(DIR, 'images');
+const IMAGE_ROOT_DIR = getImagesDir();
 const IMAGE_GENERATION_TIMEOUT_MS = 180_000;
 const SELECTORS = JSON.parse(readFileSync(join(__dirname, 'selectors.json'), 'utf8'));
 
@@ -73,9 +70,14 @@ function isChatGPTUrl(url) {
   return typeof url === 'string' && url.startsWith('https://chatgpt.com');
 }
 
+function isAttachOnlyMode() {
+  return process.env.CHATGPT_MCP_ATTACH_ONLY === '1';
+}
+
 async function tryConnectCDP() {
+  const cdpFile = getCDPFilePath();
   const url = process.env.CHATGPTPRO_CDP
-    || (existsSync(CDP_FILE) ? readFileSync(CDP_FILE, 'utf8').trim() : null);
+    || (existsSync(cdpFile) ? readFileSync(cdpFile, 'utf8').trim() : null);
   if (!url) return null;
 
   try {
@@ -91,7 +93,9 @@ async function tryConnectCDP() {
 }
 
 async function launchOwn() {
-  mkdirSync(PROFILE_DIR, { recursive: true });
+  const profileDir = getProfileDir();
+  const cdpFile = getCDPFilePath();
+  mkdirSync(profileDir, { recursive: true });
   const cdpUrl = process.env.CHATGPTPRO_CDP || 'http://127.0.0.1:9222';
   let cdpPort = 9222;
   try {
@@ -99,7 +103,7 @@ async function launchOwn() {
     cdpPort = Number(parsed.port || 9222);
   } catch {}
 
-  const context = await chromium.launchPersistentContext(PROFILE_DIR, {
+  const context = await chromium.launchPersistentContext(profileDir, {
     channel: 'chrome',
     headless: false,
     viewport: null,
@@ -109,7 +113,7 @@ async function launchOwn() {
       '--remote-debugging-address=127.0.0.1',
     ],
   });
-  writeFileSync(CDP_FILE, `http://127.0.0.1:${cdpPort}\n`);
+  writeFileSync(cdpFile, `http://127.0.0.1:${cdpPort}\n`);
   log('launched own persistent context');
   return { browser: null, context, owns: true };
 }
@@ -118,10 +122,22 @@ async function getContext() {
   if (isContextUsable()) return _context;
   resetSessionHandles();
 
-  const attached = (await tryConnectCDP()) || (await launchOwn());
-  _browser = attached.browser;
-  _context = attached.context;
-  _ownsBrowser = attached.owns;
+  const attached = await tryConnectCDP();
+  if (attached) {
+    _browser = attached.browser;
+    _context = attached.context;
+    _ownsBrowser = attached.owns;
+    return _context;
+  }
+
+  if (isAttachOnlyMode()) {
+    throw new Error('no_shared_browser_owner: launch the browser owner first (`exocortex-chatgpt launch`)');
+  }
+
+  const launched = await launchOwn();
+  _browser = launched.browser;
+  _context = launched.context;
+  _ownsBrowser = launched.owns;
   return _context;
 }
 

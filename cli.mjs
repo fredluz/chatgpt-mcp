@@ -27,8 +27,16 @@ function normalizeMode(flags) {
 }
 
 async function runController(fn) {
+  const previousAttachOnly = process.env.CHATGPT_MCP_ATTACH_ONLY;
+  process.env.CHATGPT_MCP_ATTACH_ONLY = '1';
   const c = await import('./browser-controller.mjs');
-  try { return await fn(c); } finally { await c.shutdown(); }
+  try {
+    return await fn(c);
+  } finally {
+    if (previousAttachOnly == null) delete process.env.CHATGPT_MCP_ATTACH_ONLY;
+    else process.env.CHATGPT_MCP_ATTACH_ONLY = previousAttachOnly;
+    await c.shutdown();
+  }
 }
 
 try {

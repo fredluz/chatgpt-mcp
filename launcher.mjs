@@ -4,13 +4,11 @@
 // CLI, scripts) can attach to the same session concurrently.
 
 import { chromium } from 'patchright';
-import { homedir } from 'node:os';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { getCDPFilePath, getProfileDir } from './runtime-paths.mjs';
 
-const DIR = join(homedir(), '.chatgpt-mcp');
-const PROFILE_DIR = join(DIR, 'profile');
-const CDP_FILE = join(DIR, 'cdp');
+const PROFILE_DIR = getProfileDir();
+const CDP_FILE = getCDPFilePath();
 mkdirSync(PROFILE_DIR, { recursive: true });
 
 const CDP_PORT = Number(process.env.CDP_PORT || 9222);
