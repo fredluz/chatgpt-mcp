@@ -1,107 +1,187 @@
-# exocortex-chatgpt-connector
+# ChatGPT MCP: GPT-5 Pro + Image Generation for Claude Code
 
-The lightweight alternative for hooking up ChatGPT image generation and GPT Pro to Claude Code or any agentic workspace. Optimized for Exocortex, the open-source sub-agent management system.
+`exocortex-chatgpt-connector` is an MCP (Model Context Protocol) server that lets any MCP client use your ChatGPT Pro account for:
 
-`exocortex-chatgpt-connector` exposes ChatGPT as local MCP + CLI + HTTP surfaces, with async-first workflows for long-running AI tasks.
+- GPT-5 Pro deep reasoning
+- ChatGPT image generation
+- Async, non-blocking workflows (`submit -> do other work -> fetch later`)
 
-## What It Does
+If you searched for `ChatGPT MCP`, `GPT-5 Pro MCP`, `ChatGPT image generation MCP`, or `use ChatGPT from Claude Code`, this is the connector.
 
-- Sends ChatGPT Pro text requests and ChatGPT image-generation requests through local tools.
-- Supports both blocking commands (`query`, `image`) and async orchestration (`submit_pro`, `submit_image`).
-- Persists async state to disk so agents can submit work, continue other tasks, and fetch later.
+## Why This Exists
 
-## Why This Backend
+Most MCP tools are API-key based and synchronous.
+This connector is different:
 
-- Uses **Camoufox** (Firefox-based) as the browser engine.
-- Typical memory profile is materially lower than Chromium-based automation (roughly ~200MB vs ~400MB baseline in prior runs).
-- Includes built-in stealth / anti-detection hardening from Camoufox.
+- Uses your own ChatGPT Pro subscription.
+- Works from Claude Code or any MCP-compatible client.
+- Built for long-running requests that should not block your agent loop.
 
-## Core Capabilities
-
-- **Async mailbox** for non-blocking AI workflows (`requests/` + `responses/` files).
-- **Per-agent tab isolation** so concurrent agents do not collide in a shared tab.
-- **Resilient response routing** with notification hooks that support escalation-chain workflows when a target agent is unavailable.
-- **`submit_pro`** for deep reasoning (GPT Pro + longer thinking).
-- **`submit_image`** for image generation with durable local file output.
-- **Durable image handling** with verified writes before completion.
-
-## Install
-
-Requires Node.js 18+.
+## 3-Line Setup
 
 ```bash
-npm install
+npm install -g exocortex-chatgpt-connector
+exocortex-chatgpt-connector launch --visible
+exocortex-chatgpt-connector launch
 ```
 
-Camoufox browser binaries are fetched automatically by `postinstall`.
-If you need to run it manually:
+First run `--visible` to log in once to ChatGPT.
+After that, the daemon runs headless and reuses your persisted session.
 
-```bash
-npm run camoufox:fetch
+Then register it in `~/.claude.json`:
+
+```json
+{
+  "mcpServers": {
+    "chatgpt": {
+      "type": "stdio",
+      "command": "exocortex-chatgpt-connector",
+      "args": ["server"]
+    }
+  }
+}
 ```
 
-## First Login (One Time Per Profile)
+## Prerequisites
 
-```bash
-# open interactive login window
-node cli.mjs launch --visible
+- ChatGPT Pro subscription
+- Chrome installed
+- Node.js 20+
+
+## How It Works (Honest Version)
+
+- This is browser automation against your own ChatGPT Pro session.
+- The daemon runs Chrome via `patchright` with a persistent profile.
+- Login once, then the session persists for future headless runs.
+
+## Async Workflow (Non-Blocking)
+
+Use this pattern for hard reasoning or image generation:
+
+1. Submit work with `submit_pro` or `submit_image`.
+2. Continue other coding/agent tasks.
+3. Check `status` when convenient.
+4. Call `fetch` to retrieve final output and files.
+
+## MCP Tools (Exactly 5)
+
+1. `submit_pro`
+- Submit async GPT-5 Pro request with extended thinking.
+- Returns immediately with `request_id` and `response_path`.
+- Use for architecture decisions, deep debugging, hard analysis.
+
+2. `submit_image`
+- Submit async image generation request.
+- Returns immediately with `request_id` and `image_dir`.
+- Use for UI assets, carousel imagery, illustrations, mockups.
+
+3. `query`
+- Sync convenience for simple one-shot questions.
+- Blocking.
+
+4. `status`
+- Check daemon session status or async request status.
+
+5. `fetch`
+- Fetch async request result (text, files, completion state).
+
+## Real Usage Examples
+
+### `submit_pro`: Deep Reasoning Without Blocking
+
+Submit:
+
+```json
+{
+  "tool": "submit_pro",
+  "args": {
+    "prompt": "Analyze why our websocket reconnect logic causes duplicate subscriptions. Propose a safe refactor with rollout plan and test strategy."
+  }
+}
 ```
 
-Log into ChatGPT in that window once. The connector reuses your persisted Firefox/Camoufox profile under `~/.chatgpt-mcp/profile` (or `CHATGPT_MCP_HOME/profile`).
+Immediate response (example):
 
-## Quick Start
-
-Run these in separate terminals:
-
-```bash
-node cli.mjs launch
-node cli.mjs daemon
-node cli.mjs server
+```json
+{
+  "request_id": "req_7f9c...",
+  "response_path": "~/.chatgpt-mcp/agents/readme-chatgpt-mcp/pro/req_7f9c....md"
+}
 ```
 
-Then use tools via MCP or CLI:
+Do other work, then:
 
-```bash
-node cli.mjs status
-node cli.mjs query "one-sentence summary of TCP slow start"
-node cli.mjs submit "deep architecture analysis" --agent planner
-node cli.mjs fetch <request_id>
-node cli.mjs image "minimal red warning icon on transparent background"
+```json
+{
+  "tool": "fetch",
+  "args": {
+    "request_id": "req_7f9c..."
+  }
+}
 ```
 
-## MCP Tools
+### `submit_image`: Async Image Generation
 
-Primary async tools:
+Submit:
 
-- `submit_pro`: non-blocking deep reasoning submission.
-- `submit_image`: non-blocking image-generation submission.
-- `status`: queue/session status.
-- `fetch`: read completed async results.
-
-Sync convenience tools remain available (`query`, `generate_image`) for interactive/manual usage.
-
-## Async Pattern (Recommended for Agents)
-
-1. Submit with `submit_pro` or `submit_image`.
-2. Continue other work while the daemon processes requests.
-3. Wait for notification or poll status.
-4. Read response JSON from `responses/<request_id>.json`.
-
-## HTTP API
-
-```bash
-node cli.mjs http
+```json
+{
+  "tool": "submit_image",
+  "args": {
+    "prompt": "Create a clean onboarding illustration: developer at desk, teal/orange palette, transparent background, modern flat style."
+  }
+}
 ```
 
-Uses a bearer token stored at `~/.chatgpt-mcp/token`.
+Immediate response (example):
 
-## Attribution
+```json
+{
+  "request_id": "img_b21a...",
+  "image_dir": "~/.chatgpt-mcp/agents/readme-chatgpt-mcp/images/img_b21a..."
+}
+```
 
-This project is MIT licensed and forked from:
+Later:
 
-- [guilhermesilveira/chatgpt-mcp](https://github.com/guilhermesilveira/chatgpt-mcp)
+```json
+{
+  "tool": "status",
+  "args": {
+    "request_id": "img_b21a..."
+  }
+}
+```
 
-The connector has been substantially extended into an Exocortex-optimized async orchestration toolchain with image-generation support and per-agent isolation.
+Then fetch outputs:
+
+```json
+{
+  "tool": "fetch",
+  "args": {
+    "request_id": "img_b21a..."
+  }
+}
+```
+
+## Per-Agent Output Routing
+
+Each agent gets isolated output directories:
+
+- Text responses: `~/.chatgpt-mcp/agents/<agent-name>/pro/`
+- Generated images: `~/.chatgpt-mcp/agents/<agent-name>/images/`
+
+This makes concurrent multi-agent workflows safe and traceable.
+
+## Best Fit
+
+- Claude Code users who want GPT-5 Pro for difficult reasoning tasks.
+- MCP users who want ChatGPT image generation in the same toolchain.
+- Agentic workflows that need async, non-blocking submit/fetch patterns.
+
+## Package Name
+
+Current package name stays `exocortex-chatgpt-connector`.
 
 ## License
 
