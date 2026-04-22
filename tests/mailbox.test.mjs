@@ -190,7 +190,7 @@ test('notification hook calls runner when send-to-agent script exists', async ()
     assert.equal(called[0], 'foo');
     assert.equal(
       called[1],
-      `exocortex-chatgpt response ready: 123 at ${join(home, 'agents', 'foo', 'pro', '123.json')} — preview: ${'x'.repeat(100)}`,
+      `chatgpt-mcp response ready: 123 at ${join(home, 'agents', 'foo', 'pro', '123.json')} — preview: ${'x'.repeat(100)}`,
     );
 
     called = null;
@@ -205,7 +205,7 @@ test('notification hook calls runner when send-to-agent script exists', async ()
     assert.equal(called[0], 'foo');
     assert.equal(
       called[1],
-      `exocortex-chatgpt images ready: 456 in /tmp/chatgpt-images — 2 file(s). Response at ${join(home, 'agents', 'foo', 'pro', '456.json')}.`,
+      `chatgpt-mcp images ready: 456 in /tmp/chatgpt-images — 2 file(s). Response at ${join(home, 'agents', 'foo', 'pro', '456.json')}.`,
     );
 
     called = null;
@@ -220,7 +220,7 @@ test('notification hook calls runner when send-to-agent script exists', async ()
     assert.equal(called[1], join(home, 'agents', 'foo', 'pro', '789.json'));
     assert.equal(
       called[2],
-      `exocortex-chatgpt response ready: 789 at ${join(home, 'agents', 'foo', 'pro', '789.json')} — preview: preview`,
+      `chatgpt-mcp response ready: 789 at ${join(home, 'agents', 'foo', 'pro', '789.json')} — preview: preview`,
     );
 
     const missing = await notifyAgentIfAvailable('foo', '123', 'preview', {

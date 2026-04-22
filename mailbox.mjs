@@ -465,8 +465,8 @@ export async function notifyAgentIfAvailable(agent, requestId, preview, options 
   const file_count = Number.isFinite(options.fileCount) ? options.fileCount : 0;
   const request_brief = briefText(options.requestBrief ?? '');
   const message = image_dir
-    ? `exocortex-chatgpt images ready: ${requestId} in ${image_dir} — ${file_count} file(s). Response at ${response_path}.${request_brief ? ` Original request: ${request_brief}` : ''}`
-    : `exocortex-chatgpt response ready: ${requestId} at ${response_path} — preview: ${previewText(preview)}${request_brief ? ` Original request: ${request_brief}` : ''}`;
+    ? `chatgpt-mcp images ready: ${requestId} in ${image_dir} — ${file_count} file(s). Response at ${response_path}.${request_brief ? ` Original request: ${request_brief}` : ''}`
+    : `chatgpt-mcp response ready: ${requestId} at ${response_path} — preview: ${previewText(preview)}${request_brief ? ` Original request: ${request_brief}` : ''}`;
   const runner = options.runner ?? defaultNotifyRunner;
   const args = useResponseRouter
     ? [normalizeAgent(agent), response_path, message]

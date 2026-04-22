@@ -14,7 +14,7 @@ const [cmd, ...rest] = process.argv.slice(2);
 
 function usage(code = 2) {
   console.error(
-    'usage: exocortex-chatgpt <launch|daemon|server|http|status|submit|fetch|query|image|last|new|model|thinking|stop|check|tabs> [args]',
+    'usage: chatgpt-mcp <launch|daemon|server|http|status|submit|fetch|query|image|last|new|model|thinking|stop|check|tabs> [args]',
   );
   process.exit(code);
 }

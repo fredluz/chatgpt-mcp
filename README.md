@@ -1,6 +1,6 @@
 # ChatGPT MCP: GPT-5 Pro + Image Generation for Claude Code
 
-`exocortex-chatgpt-connector` is an MCP (Model Context Protocol) server that lets any MCP client use your ChatGPT Pro account for:
+`chatgpt-mcp` is an MCP (Model Context Protocol) server that lets any MCP client use your ChatGPT Pro account for:
 
 - GPT-5 Pro deep reasoning
 - ChatGPT image generation
@@ -20,9 +20,9 @@ This connector is different:
 ## 3-Line Setup
 
 ```bash
-npm install -g exocortex-chatgpt-connector
-exocortex-chatgpt-connector launch --visible
-exocortex-chatgpt-connector launch
+npm install -g chatgpt-mcp
+chatgpt-mcp launch --visible
+chatgpt-mcp launch
 ```
 
 First run `--visible` to log in once to ChatGPT.
@@ -35,7 +35,7 @@ Then register it in `~/.claude.json`:
   "mcpServers": {
     "chatgpt": {
       "type": "stdio",
-      "command": "exocortex-chatgpt-connector",
+      "command": "chatgpt-mcp",
       "args": ["server"]
     }
   }
@@ -178,10 +178,6 @@ This makes concurrent multi-agent workflows safe and traceable.
 - Claude Code users who want GPT-5 Pro for difficult reasoning tasks.
 - MCP users who want ChatGPT image generation in the same toolchain.
 - Agentic workflows that need async, non-blocking submit/fetch patterns.
-
-## Package Name
-
-Current package name stays `exocortex-chatgpt-connector`.
 
 ## License
 

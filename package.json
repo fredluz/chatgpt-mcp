@@ -1,10 +1,9 @@
 {
-  "name": "@fredluz/exocortex-chatgpt-connector",
+  "name": "chatgpt-mcp",
   "version": "0.1.1",
-  "description": "Lightweight ChatGPT Pro + image generation MCP connector optimized for Exocortex and agentic workspaces.",
+  "description": "MCP server for ChatGPT Pro reasoning and image generation. Async, non-blocking, works with any MCP client.",
   "type": "module",
   "bin": {
-    "exocortex-chatgpt": "./cli.mjs",
     "chatgpt-mcp": "./cli.mjs"
   },
   "files": [
@@ -14,11 +13,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/fredluz/exocortex-chatgpt-connector.git"
+    "url": "git+https://github.com/fredluz/chatgpt-mcp.git"
   },
-  "homepage": "https://github.com/fredluz/exocortex-chatgpt-connector",
+  "homepage": "https://github.com/fredluz/chatgpt-mcp",
   "bugs": {
-    "url": "https://github.com/fredluz/exocortex-chatgpt-connector/issues"
+    "url": "https://github.com/fredluz/chatgpt-mcp/issues"
   },
   "engines": {
     "node": ">=18"
